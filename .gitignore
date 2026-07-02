@@ -1,0 +1,18 @@
+# Power BI
+*.pbix.bak
+~$*.pbix
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Raw/sensitive data (uncomment if your source data shouldn't be pushed)
+# data/*.csv
+# data/*.xlsx
+
+# Logs
+*.log
