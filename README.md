@@ -11,9 +11,9 @@
 
 ## Project Overview
 
-This project analyzes the financial market impact of COVID-19 on 20 major companies, split into **Technology** and **Non-Technology** cohorts, using five years of daily stock data (2018–2022) and annual company financials. It combines classic financial risk/return analytics (total return, volatility, drawdown, beta, Sharpe ratio) with a dedicated pandemic-shock analysis (drawdown depth, recovery speed) and closes with an investor-facing recommendation framework.
+This project analyzes the financial market impact of COVID-19 on 20 major companies, split into **Technology** and **Non-Technology** cohorts, using five years of daily stock data (2018–2022) and annual company financials. It combines classic financial risk/return analytics (total return, volatility, drawdown, beta, Sharpe ratio) with a dedicated pandemic-shock analysis (drawdown depth and recovery magnitude) and closes with an investor-facing recommendation framework.
 
-The data was modeled into a **Star Schema** (2 dimension tables + 3 fact tables, ~50,850 total rows) and visualized through an interactive Power BI dashboard containing **six analytical pages**, driven by roughly **90 DAX measures**.
+The data was modeled into a **Star Schema** (2 dimension tables + 3 fact tables, ~50,850 total rows) and visualized through an interactive Power BI dashboard containing **six analytical pages**, driven by **81 DAX measures**. The `.pbix` and source CSVs are not committed here, but the measures and values below were verified against an author-supplied local copy.
 
 📄 Full write-up: [`docs/COVID_Market_Impact_Dashboard_Documentation.docx`](docs/COVID_Market_Impact_Dashboard_Documentation.docx)
 📝 Short summary: [`docs/COVID_Market_Impact_Dashboard_Brief_Description.md`](docs/COVID_Market_Impact_Dashboard_Brief_Description.md)
@@ -28,10 +28,10 @@ covid-market-impact-dashboard/
 ├── PowerBI/
 │   └── COVID_Market_Impact_Dashboard.pbix     # Power BI dashboard file (add before committing)
 │
-├── data/
-│   ├── daily_stock_prices.csv                 # Daily OHLCV price history per company (2018–2022)
-│   ├── company_financials.csv                 # Annual revenue, net income, assets, employees
-│   └── market_index.csv                       # Daily market benchmark used for beta calculation
+├── data/                                      # Scaffold only: source CSVs are not committed
+│   ├── daily_stock_prices.csv                 # Planned: daily OHLCV price history (2018–2022)
+│   ├── company_financials.csv                 # Planned: annual revenue, net income, assets, employees
+│   └── market_index.csv                       # Planned: daily market benchmark for beta calculation
 │
 ├── docs/
 │   ├── COVID_Market_Impact_Dashboard_Documentation.docx   # Full project documentation
@@ -155,12 +155,12 @@ ADDCOLUMNS(
 | `Date` | Date | Trading date, foreign key to `dcalendar` |
 | `company` | Text | Foreign key to `dimCompany` |
 | `Open`, `High`, `Low`, `Close` | Decimal Number | Daily OHLC price |
-| `Adj Close` | Decimal Number | Dividend/split-adjusted closing price, used for return calculations |
+| `Adj Close` | Decimal Number | Dividend/split-adjusted closing price, used by COVID Recovery and Normalized Index; Total Return uses `Close` |
 | `Volume` | Whole Number | Daily trading volume |
-| `Daily Return` | Decimal Number | Day-over-day % change in `Adj Close` |
-| `Running Max Close` | Decimal Number | Rolling maximum of `Adj Close` to date, used to compute drawdown |
-| `Drawdown` | Decimal Number | % decline from `Running Max Close` to current `Adj Close` |
-| `Day Index` | Whole Number | Sequential trading-day counter per company, used to align companies on a common time axis |
+| `Daily Return` | Decimal Number | Intraday return calculated as `(Close - Open) / Open` |
+| `Running Max Close` | Decimal Number | Rolling maximum of `Close` to date, used to compute drawdown |
+| `Drawdown` | Decimal Number | % decline from `Running Max Close` to current `Close` |
+| `Day Index` | Whole Number | Sequential trading-day counter per company; the verified COVID measures use calendar-date windows |
 
 ### 5. `BetaReturns` (Fact Table — Daily)
 
@@ -192,64 +192,65 @@ This structure lets every visual filter simultaneously by company attributes (Se
 
 ## 🔬 Data Dictionary: Key Field Analysis
 
-This section details the analytical role of the most important fields and the general DAX pattern used to turn them into report-ready measures.
+This section describes the verified analytical role of the most important fields. Expressions below were checked against an author-supplied local copy of the `.pbix`; the file itself is not committed to this repository.
 
 | Field Name | Source Table | Analytical Role & DAX Pattern |
 |---|---|---|
-| **Adj Close** | `Daily Stock Return` | Basis for **Total Return**: `DIVIDE([Ending Adj Close] - [Starting Adj Close], [Starting Adj Close])` evaluated at first/last `Day Index` per company. |
-| **Daily Return** | `Daily Stock Return` | Basis for **Volatility**: `STDEV.P` over the `Daily Return` column within company/date filter context, and for **Sharpe / Risk-Adjusted Return**: `DIVIDE([Avg Daily Return], [Volatility])`. |
-| **Running Max Close / Drawdown** | `Daily Stock Return` | Basis for **Max Drawdown**: `MIN([Drawdown])` per company, computed as `DIVIDE([Adj Close] - [Running Max Close], [Running Max Close])`. |
-| **Stock Return / Market Return** | `BetaReturns` | Basis for **Beta**: `DIVIDE(COVARIANCE.P('BetaReturns'[Stock Return], 'BetaReturns'[Market Return]), VAR.P('BetaReturns'[Market Return]))`. |
-| **Net Income / Total Assets** | `20 Companies` | Basis for **ROA**: `DIVIDE(SUM([Net Income]), SUM([Total Assets]))`. |
-| **Net Income / Annual Rev** | `20 Companies` | Basis for **Profit Margin**: `DIVIDE(SUM([Net Income]), SUM([Annual Rev]))`. |
+| **Adj Close** | `Daily Stock Return` | Used by **COVID Recovery** and **Normalized Index**. **Total Return** instead uses `Close`: `DIVIDE([Ending Close] - [Starting Close], [Starting Close])` at the first/last date per company. |
+| **Daily Return** | `Daily Stock Return` | Intraday return calculated as `DIVIDE([Close] - [Open], [Open])`. **Volatility** is `STDEV.S('Daily Stock Return'[Daily Return])`; **Sharpe Ratio** is `DIVIDE(AVERAGE('Daily Stock Return'[Daily Return]), [Volatility])` with no risk-free-rate subtraction. |
+| **Running Max Close / Drawdown** | `Daily Stock Return` | Rolling maximum of `Close` and `DIVIDE([Close] - [Running Max Close], [Running Max Close])`; **Max Drawdown** is `MIN([Drawdown])` per company. |
+| **Stock Return / Market Return** | `BetaReturns` | **Beta** is the covariance of stock and market returns divided by market-return variance, implemented with `AVERAGEX` over `BetaReturns`. |
+| **Profit of Assets** | `20 Companies` | **ROA** is `AVERAGE('20 Companies'[Profit of Assets])` (Apple leads at 21.12%). |
+| **Profit** | `20 Companies` | **Profit Margin** is `AVERAGE('20 Companies'[Profit])` (JPMorgan Chase leads at 31.0%). **Business Strength Score** is `0.5 * [ROA] + 0.5 * [Profit Margin]`, which ranks Facebook first. |
 | **Is Tech** | `dimCompany` | Drives every Tech-vs-Non-Tech comparison measure via `CALCULATE([Measure], dimCompany[Is Tech] = "Tech")` and the `"Non-Tech"` equivalent. |
-| **Day Index** | `Daily Stock Return` | Aligns companies on a common trading-day axis so COVID-drawdown and recovery measures compare like-for-like periods regardless of calendar-date gaps (holidays, listing dates). |
+| **Day Index** | `Daily Stock Return` | Sequential trading-day counter per company. The verified COVID drawdown and recovery measures use explicit calendar-date windows, not `Day Index`. |
 
 ---
 
 ## 📊 Dashboard Pages: Technical Deep Dive
 
-The Power BI report relies on the star schema above and layers roughly 90 DAX measures on top of it to deliver each page's insights.
+The Power BI report relies on the star schema above and layers 81 DAX measures on top of it to deliver each page's insights.
 
 ### 📋 Overview Page
 
 | Focus Area | Technical Implementation |
 |---|---|
 | **KPI Calculations (DAX)** | `Best Total Return Company` / `Worst Total Return Company` use `TOPN(1, ...)` over a virtual table of per-company `[Total Return]`, paired with footer measures that concatenate the value for card display. |
-| **Tech vs Non-Tech Trend** | `Tech Avg Close` / `Non-Tech Avg Close` use `CALCULATE(AVERAGE('Daily Stock Return'[Adj Close]), dimCompany[Is Tech] = "Tech")`, evaluated across `dcalendar[Year]`/`dcalendar[Quarter]` for the area chart. |
+| **Tech vs Non-Tech Trend** | `Tech Avg Close` / `Non-Tech Avg Close` use `CALCULATE(AVERAGE('Daily Stock Return'[Close]), FILTER(dimCompany, dimCompany[Is Tech] = "Tech"))`, evaluated across `dcalendar[Year]`/`dcalendar[Quarter]` for the area chart. |
 | **Dynamic Bar Coloring** | `Total Return Bar Color` returns a hex string conditionally (`IF([Total Return] < 0, "#E06666", "#3FBF8F")`) and is bound to the bar chart's Data Colors via a field-value color measure. |
 
 ### 📈 Ranking Page
 
 | Focus Area | Technical Implementation |
 |---|---|
-| **Risk-Adjusted Ranking** | `Risk-Adjusted Return` / `Sharpe Ratio` divide average daily return by volatility per company; `Highest/Lowest Sharpe Ratio Company` wrap this in `TOPN`/`BOTTOMN` over a company-level summary table. |
+| **Sharpe Ratio** | `Sharpe Ratio` = `AVERAGE('Daily Stock Return'[Daily Return]) / STDEV.S('Daily Stock Return'[Daily Return])`; `Highest/Lowest Sharpe Ratio Company` wrap this in `TOPN` over a company-level summary table. There is no separate `Risk-Adjusted Return` measure in the model. |
+| **Return / Volatility Chart** | The Top 10 chart uses `Total Return / Volatility` (Tesla 147, Apple 128, Microsoft 119). This is a different measure from Sharpe Ratio and should be labeled as such. |
 | **Scatter Plot (Return vs Risk)** | Plots `[Volatility]` (X) against `[Total Return]` (Y) at `Company` grain, colored by `dimCompany[Is Tech]` — no additional measure required beyond the two base metrics. |
-| **Beta Ranking** | `Average Beta`, `Beta Rank`, and `Beta Podium Color` compute company beta via `BetaReturns`, rank it with `RANKX`, and conditionally color the top 3 podium bars (gold/silver/bronze-style palette). |
+| **Beta** | `Beta` is computed from `BetaReturns` via `AVERAGEX` covariance/variance; `Average Beta` supports the cohort comparison. The Top 3 Highest Beta bars are a visual ranking, not separate `Beta Rank` / `Beta Podium Color` measures. |
 
 ### 🦠 COVID Deep Dive Page
 
 | Focus Area | Technical Implementation |
 |---|---|
-| **COVID Drawdown** | `COVID Drawdown` restricts `[Max Drawdown]` to the 2020 window using `CALCULATE([Max Drawdown], dcalendar[Year] = 2020)`, isolating the pandemic-specific decline from the full 2018–2022 drawdown. |
-| **COVID Recovery** | `COVID Recovery` measures the % gain from each company's 2020 trough (`Day Index` at `MIN([Drawdown])`) to a subsequent peak, using `CALCULATE` with a `FILTER` over `Daily Stock Return` restricted to post-trough dates. |
-| **Recovery Index** | `Normalized Index` rebases each cohort's average close to a common starting value (Q1 2020 = 100) so Tech and Non-Tech recovery trajectories are visually comparable regardless of absolute price level. |
-| **COVID Outperformance / Spread** | `COVID Outperformance` = `[Tech Avg COVID Return] - [Non-Tech Avg COVID Return]`; `COVID Recovery Spread` = `[Best COVID Recovery Value] - [Weakest COVID Recovery Value]`. |
+| **COVID Drawdown** | `COVID Drawdown` = `ABS(MIN('Daily Stock Return'[Drawdown]))` for `2020-02-20` to `2020-12-31`; the separate `Worst COVID Drawdown 2020 Value` card scans the full 2020 calendar year and formats the negative value. Both identify American Airlines at -84.5%. |
+| **COVID Recovery** | `COVID Recovery` = `(MAX([Adj Close], 2020-03-24 to 2020-12-31) - MIN([Adj Close], 2020-02-20 to 2020-03-23)) / MIN([Adj Close], 2020-02-20 to 2020-03-23)`. It uses calendar windows, not `Day Index`. |
+| **Recovery Index** | `Normalized Index` rebases average `Adj Close` to `2020-02-20 = 100` so Tech and Non-Tech recovery trajectories are visually comparable regardless of absolute price level. |
+| **COVID Outperformance / Spread** | `COVID Outperformance Value` = average `[COVID Recovery]` for Tech minus Non-Tech; `COVID Recovery Spread` = maximum minus minimum `[COVID Recovery]` across companies. |
 
 ### ⚖️ Tech VS Non-Tech Page
 
 | Focus Area | Technical Implementation |
 |---|---|
 | **Return Gap** | `Return Gap` / `Return Gap Value` = `[Tech Avg Return] - [Non-Tech Avg Return]`, displayed as both a KPI card and a labeled bar. |
-| **Revenue Totals by Year** | Grouped bar aggregates `SUM('20 Companies'[Annual Rev])` split by `dimCompany[Is Tech]` and `dcalendar[Year]`, requiring the annual fact table to relate cleanly to both dimensions. |
-| **Return Stability** | `Return Stability` computes the inverse of return dispersion (e.g., `1 / STDEV.P` of period returns) per cohort, so a higher bar means more consistent (less volatile) returns. |
+| **Revenue Totals by Year** | Grouped bar aggregates `SUM('20 Companies'[Annual Rev])` split by `dimCompany[Is Tech]` and `dcalendar[Year]`. The source data sums Non-Tech above Tech in every year; the screenshot labels conflict and need a manual visual correction. |
+| **Return Stability** | `Return Stability` = `1 / [Volatility]`, so a higher bar means lower daily return dispersion. |
 
 ### 🔎 Company Drill Down Page
 
 | Focus Area | Technical Implementation |
 |---|---|
 | **Dynamic Titles** | `Price Trend Title` concatenates the slicer-selected company into a string (`SELECTEDVALUE(dimCompany[Company]) & " — Price Trend (2018–2022)"`) so the chart title updates live with the selector. |
-| **Trend Signal (MA Crossover)** | `MA30` / `MA90` compute rolling averages over `Daily Stock Return[Adj Close]` using `AVERAGEX` with a `DATESINPERIOD` window; `Trend Signal` compares the two with an `IF(MA30 > MA90, "Bullish (Golden Cross)", "Bearish (Death Cross)")` pattern. |
+| **Trend Signal (MA Crossover)** | `MA30` / `MA90` compute rolling averages over `Daily Stock Return[Adj Close]` using `CALCULATE(AVERAGE(...), DATESINPERIOD(...))`; `Trend Signal` compares the two with an `IF(MA30 > MA90, "Bullish (Golden Cross)", "Bearish (Death Cross)")` pattern. |
 | **Revenue Efficiency Trend** | `Revenue per Employee` = `DIVIDE(SUM('20 Companies'[Annual Rev]), SUM('20 Companies'[Number of Employees]))`, filtered to the selected company via `SELECTEDVALUE`. |
 
 ### 🏆 Recommendations Page
@@ -264,13 +265,13 @@ The Power BI report relies on the star schema above and layers roughly 90 DAX me
 
 ## 🧮 Analytical Measures Summary
 
-This project's ~90 DAX measures fall into six functional groups:
+This project's 81 DAX measures fall into the following functional groups:
 
 - **Return & Ranking:** `Total Return`, `Rank`, `Best/Worst Total Return Company`, `Total Return Bar Color`
 - **Risk & Volatility:** `Volatility`, `Max Drawdown`, `Highest/Lowest Volatility Company`, `Volume Spike Count`
-- **Risk-Adjusted & Market:** `Risk-Adjusted Return`, `Sharpe Ratio`, `Average Beta`, `Beta Rank`
-- **COVID-Specific:** `COVID Drawdown`, `COVID Recovery`, `COVID Outperformance`, `COVID Recovery Spread`
-- **Profitability & Fundamentals:** `ROA`, `Profit Margin`, `Revenue per Employee`, `Total Revenue`
+- **Sharpe & Market:** `Sharpe Ratio`, `Highest/Lowest Sharpe Ratio Company & Footer`, `Beta`, `Average Beta`
+- **COVID-Specific:** `COVID Drawdown`, `COVID Recovery`, `COVID Outperformance Value`, `COVID Recovery Spread`, `Worst COVID Drawdown 2020 Value & Company`
+- **Profitability & Fundamentals:** `ROA`, `Profit Margin`, `Profit Margin Avg`, `Avg Profit of Assets`, `Business Strength Score`, `Strongest Business Company`, `Revenue per Employee`, `Total Revenue`
 - **Tech vs Non-Tech Comparison:** `Tech/Non-Tech Avg Return`, `Return Gap`, `Return Stability`, `Tech Color`
 - **Trend & Technical Indicators:** `MA30`, `MA90`, `Trend Signal`, `Normalized Index`
 
@@ -279,11 +280,12 @@ This project's ~90 DAX measures fall into six functional groups:
 ## 🏆 Key Insights
 
 - **Tesla** delivered the highest total return (**+476.5%**) and the strongest COVID-era recovery (**+877%**) off its 2020 low.
-- **American Airlines** posted the worst total return (**-76.0%**) and the deepest COVID drawdown (**-84.5%**), reflecting the severity of pandemic-era travel restrictions.
-- **Apple** had the best risk-adjusted return, making it the strongest "Balanced" investor pick.
+- **American Airlines** posted the deepest **2020 COVID** drawdown (**-84.5%**); **Zoom** recorded the largest full-period drawdown (**-88.5%**).
+- The **Highest Sharpe Ratio** card names **Apple** (**0.0562**). The verified formula is average daily return divided by sample standard deviation, with no risk-free-rate subtraction. The separate Return/Volatility chart (Tesla 147, Apple 128, Microsoft 119) is a different measure and should be labeled as such.
 - **Johnson & Johnson** was the most stable holding in the dataset (lowest daily volatility, σ = 1.08%), consistent with its defensive healthcare classification.
-- **Technology companies** outperformed Non-Technology by **+67 points** on average return (105% vs 38%) and recovered from the pandemic roughly **2.4× faster**, while carrying only modestly higher volatility.
-- **Non-Tech companies** held a larger revenue base going into the pandemic, but Tech's faster growth overtook it by 2022.
+- **Facebook** ranked first on **Business Strength Score** (`0.5 × ROA + 0.5 × Profit Margin`). Apple led ROA at **21.12%**, while JPMorgan Chase led average profit margin at **31.0%**.
+- **Technology companies** outperformed Non-Technology by **+67 percentage points** on average return (105% vs 38%). For the 2020 COVID recovery window, Tech averaged **+244.5%** vs Non-Tech **+80.1%**, a **+164.4-point** gap; no recovery-speed multiple was calculated.
+- The verified source data sums **Non-Tech revenue above Tech in every year** (2018: **$1.384T vs $0.850T**; 2020: **$1.289T vs $1.142T**; 2022: **$1.836T vs $1.655T**). The committed screenshot instead labels Tech above Non-Tech from 2020 and shows **$1.66T vs $1.44T** in 2022, so that visual needs manual correction before publication.
 
 ---
 
@@ -292,7 +294,7 @@ This project's ~90 DAX measures fall into six functional groups:
 | Category | Tool | Purpose |
 |---|---|---|
 | **Data Modeling** | Power BI Desktop | Star schema construction, relationship management |
-| **Calculation Engine** | DAX | ~90 measures covering return, risk, profitability, and sector-comparison logic |
+| **Calculation Engine** | DAX | 81 measures covering return, risk, profitability, and sector-comparison logic |
 | **Data Preparation** | Power Query (M) | Cleaning, type casting, and derived-column creation (Running Max Close, Drawdown, Day Index) |
 | **Version Control** | Git & GitHub | Project hosting, versioning |
 | **Documentation** | Microsoft Word, Markdown | Full documentation and short-form project summary |
@@ -318,4 +320,4 @@ This project is licensed under the MIT License — see [`LICENSE`](LICENSE) for 
 
 ## 👤 Author
 
-**Mohamed Bassem**
+**Mohamed Basem**
