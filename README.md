@@ -31,7 +31,7 @@ covid-market-impact-dashboard/
 ├── data/                                      # Scaffold only: source CSVs are not committed
 │   ├── daily_stock_prices.csv                 # Planned: daily OHLCV price history (2018–2022)
 │   ├── company_financials.csv                 # Planned: annual revenue, net income, assets, employees
-│   └── market_index.csv                       # Planned: daily market benchmark for beta calculation
+│   └── all_daily_returns_for_beta.csv         # Daily market benchmark close/return for beta
 │
 ├── docs/
 │   ├── COVID_Market_Impact_Dashboard_Documentation.docx   # Full project documentation
@@ -169,10 +169,10 @@ ADDCOLUMNS(
 | Column Name | Data Type (Power BI) | Description |
 |---|---|---|
 | `company` | Text | Foreign key to `dimCompany` |
-| `Date` | Date | Trading date, foreign key to `dcalendar` |
+| `Date` | Date | Trading date; not related to `dcalendar`, so beta uses the full date range available in the CSV |
 | `Stock Return` | Decimal Number | Company's adjusted close-to-close return |
 | `Market Adj Close` | Decimal Number | Benchmark index adjusted close |
-| `Market Return` | Decimal Number | Benchmark return recalculated on dates aligned with the stock series |
+| `Market Return` | Decimal Number | Benchmark return supplied in the source CSV; beta uses returns derived from consecutive adjusted closes |
 
 ---
 
@@ -184,22 +184,21 @@ ADDCOLUMNS(
 | `dimCompany` | `Daily Stock Return` | 1 → * | `Company` |
 | `dimCompany` | `BetaReturns` | 1 → * | `Company` |
 | `dcalendar` | `Daily Stock Return` | 1 → * | `Date` |
-| `dcalendar` | `BetaReturns` | 1 → * | `Date` |
 
-This structure lets every visual filter simultaneously by company attributes (Sector, Is Tech) and date attributes (Year, Quarter) without duplicating logic anywhere in the model.
+Company attributes filter all three fact tables. Price, COVID and ranking visuals use the calendar relationship; beta uses the full date range in `BetaReturns` because its `Date` column has no calendar relationship.
 
 ---
 
 ## 🔬 Data Dictionary: Key Field Analysis
 
-Key measures use adjusted closes, sample standard deviation and date-aligned benchmark returns.
+Key measures use adjusted closes, sample standard deviation and benchmark returns derived from consecutive adjusted closes.
 
 | Field Name | Source Table | Analytical Role & DAX Pattern |
 |---|---|---|
 | **Adj Close** | `Daily Stock Return` | Used by **Total Return**, **COVID Recovery**, **Normalized Index** and drawdown measures. |
 | **Daily Return** | `Daily Stock Return` | Adjusted close-to-close return. **Volatility** is `STDEV.S([Adj Daily Return])`; **Sharpe Ratio** is `DIVIDE(AVERAGE([Adj Daily Return]), [Volatility])` with no risk-free-rate subtraction. |
 | **Running Max Adj Close / Drawdown** | `Daily Stock Return` | Rolling maximum of `Adj Close` and `DIVIDE([Adj Close] - [Running Max Adj Close], [Running Max Adj Close])`; **Max Drawdown** is `MIN([Drawdown])` per company. |
-| **Stock Return / Market Return** | `BetaReturns` | **Beta** divides covariance of stock and market returns by market-return variance, using only dates common to both series. |
+| **Stock Return / Market Adj Close** | `BetaReturns` | **Beta** divides covariance of stock returns and derived market returns by market-return variance, using dates where both returns are present. |
 | **Profit of Assets** | `20 Companies` | **ROA** is `AVERAGE('20 Companies'[Profit of Assets])` (Apple leads at 21.12%). |
 | **Profit** | `20 Companies` | **Profit Margin** is `AVERAGE('20 Companies'[Profit])` (JPMorgan Chase leads at 31.0%). **Business Strength Score** is `0.5 * [ROA] + 0.5 * [Profit Margin]`, which ranks Facebook first. |
 | **Is Tech** | `dimCompany` | Drives every Tech-vs-Non-Tech comparison measure via `CALCULATE([Measure], dimCompany[Is Tech] = "Tech")` and the `"Non-Tech"` equivalent. |
